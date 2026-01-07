@@ -8,6 +8,7 @@ module.exports = class PostgreSQL {
         "SELECT id FROM baskets WHERE url_endpoint = $1",
         urlEndpoint
       );
+      if (basketId.rows.length === 0) return false;
       return basketId.rows[0].id;
     } catch (e) {
       console.error(`Couldn't get basketId: ${e}`);
@@ -139,6 +140,52 @@ module.exports = class PostgreSQL {
     } catch (e) {
       console.error(`Couldn't get requests: ${e}`);
       return false;
+    }
+  }
+
+  // WebSocket Connections
+  async addConnection(connectionId, urlEndpoint) {
+    try {
+      let basketId = await this.getBasketId(urlEndpoint);
+      if (basketId === false) {
+        console.error("Basket does not exist for connection");
+        return false;
+      }
+      await pgQuery(
+        "INSERT INTO connections (connection_id, basket_id) VALUES ($1, $2)",
+        connectionId,
+        basketId
+      );
+      return true;
+    } catch (e) {
+      console.error(`Couldn't add connection: ${e}`);
+      return false;
+    }
+  }
+
+  async removeConnection(connectionId) {
+    try {
+      await pgQuery("DELETE FROM connections WHERE connection_id = $1", connectionId);
+      return true;
+    } catch (e) {
+      console.error(`Couldn't remove connection: ${e}`);
+      return false;
+    }
+  }
+
+  async getConnections(urlEndpoint) {
+    try {
+      let basketId = await this.getBasketId(urlEndpoint);
+      if (basketId === false) return [];
+
+      let result = await pgQuery(
+        "SELECT connection_id FROM connections WHERE basket_id = $1",
+        basketId
+      );
+      return result.rows.map(row => row.connection_id);
+    } catch (e) {
+      console.error(`Couldn't get connections: ${e}`);
+      return [];
     }
   }
 };

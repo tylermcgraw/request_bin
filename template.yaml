@@ -37,7 +37,7 @@ Parameters:
     Description: VPC Security Group IDs for Lambda
 
 Resources:
-  # Backend API
+  # Backend API (HTTP)
   RequestBinApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -47,7 +47,117 @@ Resources:
         AllowHeaders: "'*'"
         AllowOrigin: "'*'"
 
-  # Backend Lambda Function
+  # Backend WebSocket API
+  RequestBinWebSocketApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: RequestBinWebSocketApi
+      ProtocolType: WEBSOCKET
+      RouteSelectionExpression: "$request.body.action"
+
+  # WebSocket Stage
+  RequestBinWebSocketStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      StageName: prod
+      AutoDeploy: true
+
+  # WebSocket Lambda Function
+  RequestBinWebSocketFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: ws_lambda.handler
+      Runtime: nodejs20.x
+      Timeout: 10
+      VpcConfig:
+        SubnetIds: !Ref VPCSubnetIds
+        SecurityGroupIds: !Ref VPCSecurityGroupIds
+      Environment:
+        Variables:
+          PGUSER: !Ref PGUSER
+          PGPASSWORD: !Ref PGPASSWORD
+          PGDATABASE: !Ref PGDATABASE
+          PGHOST: !Ref PGHOST
+          PGPORT: !Ref PGPORT
+          MONGO_URI: !Ref MONGO_URI
+          MONGO_DB_NAME: !Ref MONGO_DB_NAME
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'execute-api:ManageConnections'
+              Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RequestBinWebSocketApi}/*'
+
+  # WebSocket Integrations & Routes
+  ConnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      RouteKey: $connect
+      AuthorizationType: NONE
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref ConnectIntegration
+
+  ConnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RequestBinWebSocketFunction.Arn}/invocations
+
+  DisconnectRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      RouteKey: $disconnect
+      AuthorizationType: NONE
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref DisconnectIntegration
+
+  DisconnectIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RequestBinWebSocketFunction.Arn}/invocations
+
+  DefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      RouteKey: $default
+      AuthorizationType: NONE
+      Target: !Join
+        - /
+        - - integrations
+          - !Ref DefaultIntegration
+
+  DefaultIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref RequestBinWebSocketApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri:
+        Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${RequestBinWebSocketFunction.Arn}/invocations
+
+  # Grant Invoke Permissions for WebSocket Lambda
+  WebSocketLambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RequestBinWebSocketFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RequestBinWebSocketApi}/*'
+
+  # Backend HTTP Lambda Function
   RequestBinFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -74,6 +184,13 @@ Resources:
           PGPORT: !Ref PGPORT
           MONGO_URI: !Ref MONGO_URI
           MONGO_DB_NAME: !Ref MONGO_DB_NAME
+          WEBSOCKET_API_ENDPOINT: !Sub "https://${RequestBinWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - 'execute-api:ManageConnections'
+              Resource: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RequestBinWebSocketApi}/*'
 
   # Frontend Bucket
   FrontendBucket:
@@ -136,3 +253,6 @@ Outputs:
   ApiURL:
     Description: "API Endpoint"
     Value: !Sub "https://${RequestBinApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+  WebSocketURI:
+    Description: "WebSocket API URI"
+    Value: !Sub "wss://${RequestBinWebSocketApi}.execute-api.${AWS::Region}.amazonaws.com/prod"

@@ -5,6 +5,9 @@ require("dotenv").config();
 const express = require("express");
 const app = express();
 
+//AWS SDK for API Gateway Management
+const { ApiGatewayManagementApiClient, PostToConnectionCommand, DeleteConnectionCommand } = require("@aws-sdk/client-apigatewaymanagementapi");
+
 //Create API access variable
 const PostgreSQL = require("./lib/pg_api");
 const pgApi = new PostgreSQL();
@@ -27,6 +30,42 @@ const {
 
 //Add body parsing middlewear to make incoming bodies text, regardless of the type
 app.use(express.text({ type: "*/*" }));
+
+// Helper to notify clients
+async function notifyClients(endpoint, data) {
+  // Check if WEBSOCKET_API_ENDPOINT is set (Lambda environment)
+  const endpointUrl = process.env.WEBSOCKET_API_ENDPOINT;
+  if (!endpointUrl) {
+    console.log("Skipping WebSocket notification: WEBSOCKET_API_ENDPOINT not set");
+    return;
+  }
+
+  const client = new ApiGatewayManagementApiClient({
+    endpoint: endpointUrl
+  });
+
+  const connectionIds = await pgApi.getConnections(endpoint);
+
+  const message = JSON.stringify({
+    type: "new_request",
+    data: data
+  });
+
+  const postCalls = connectionIds.map(async (id) => {
+    try {
+      await client.send(new PostToConnectionCommand({ ConnectionId: id, Data: message }));
+    } catch (e) {
+      if (e.statusCode === 410) {
+        console.log(`Found stale connection, deleting ${id}`);
+        await pgApi.removeConnection(id);
+      } else {
+        console.error(`Error sending to connection ${id}:`, e);
+      }
+    }
+  });
+
+  await Promise.all(postCalls);
+}
 
 //Handles requests to clear the basket
 app.put("/api/baskets/:endpoint", async (req, res) => {
@@ -226,6 +265,10 @@ app.all("/api/:endpoint", async (req, res) => {
       errorMessage = "Request couldn't be added.";
       throw new Error(errorMessage);
     }
+
+    // Notify clients via WebSocket
+    let request = { timestamp: new Date(), method, headers, body, endpoint };
+    await notifyClients(endpoint, request);
 
     res.status(204).send();
   } catch (e) {

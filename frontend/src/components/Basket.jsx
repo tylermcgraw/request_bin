@@ -5,18 +5,20 @@ import Request from './Request';
 import CopyButton from './CopyButton';
 import Notification from './Notification';
 
-const POLLING_INTERVAL = 3000;
-
 const Basket = ({ setBaskets }) => {
   const urlEndpoint = useParams().urlEndpoint;
   const navigate = useNavigate();
   const [requests, setRequests] = useState(null);
-  const [pollingEnabled, setPollingEnabled] = useState(true);
-  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
+  const webSocketReference = useRef(null);
+  const [webSocketEnabled, setWebSocketEnabled] = useState(true);
   const [message, setMessage] = useState({ text: null, type: null });
 
   const uri = `${window.location.origin}/api/${urlEndpoint}`;
-  const autoRefreshLabel = pollingEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
+  // For AWS API Gateway WebSockets, the URL is typically passed via env var
+  // If not set, we default to localhost (though this won't work without a local WS server)
+  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
+
+  const autoRefreshLabel = webSocketEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
 
   const getRequestsHook = useCallback(() => {
     services.getRequests(urlEndpoint)
@@ -34,30 +36,41 @@ const Basket = ({ setBaskets }) => {
   }, [urlEndpoint, navigate]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsPageVisible(!document.hidden);
-    };
-
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    // Initial fetch
     getRequestsHook();
 
-    let intervalId;
-    // Only poll if enabled AND page is visible
-    if (pollingEnabled && isPageVisible) {
-      intervalId = setInterval(getRequestsHook, POLLING_INTERVAL);
-    }
+    if (webSocketEnabled && !webSocketReference.current) {
+      // API Gateway WS uses query params for custom data on connect
+      const socket = new WebSocket(`${WS_URL}?basket_id=${urlEndpoint}`);
 
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [getRequestsHook, pollingEnabled, isPageVisible]);
+      socket.onopen = () => {
+        console.log('WebSocket connected');
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'new_request') {
+            setRequests(previous => [message.data, ...previous, ]);
+          }
+        } catch (e) {
+          console.error("Failed to parse WS message", e);
+        }
+      };
+
+      socket.onclose = () => {
+        console.log('WebSocket closed');
+        webSocketReference.current = null;
+      };
+
+      webSocketReference.current = socket;
+
+      return () => {
+        if (socket.readyState === 1) { // OPEN
+            socket.close();
+        }
+      };
+    }
+  }, [getRequestsHook, webSocketEnabled, urlEndpoint, WS_URL]);
 
   const deleteBasket = () => {
     services.deleteBasket(urlEndpoint)
@@ -93,7 +106,15 @@ const Basket = ({ setBaskets }) => {
   const refreshBasket = () => getRequestsHook();
 
   const toggleAutoRefresh = () => {
-    setPollingEnabled(!pollingEnabled);
+    if (webSocketEnabled) {
+      if (webSocketReference.current) {
+        webSocketReference.current.close();
+        webSocketReference.current = null;
+      }
+      setWebSocketEnabled(false);
+    } else {
+      setWebSocketEnabled(true);
+    }
   };
 
   return (
