@@ -17,7 +17,7 @@
     "mongodb": "^6.19.0",
     "morgan": "^1.10.1",
     "pg": "^8.16.3",
-    "ws": "^8.18.3"
+    "serverless-http": "^4.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

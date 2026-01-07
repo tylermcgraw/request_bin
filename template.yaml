@@ -1,0 +1,138 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  RequestBin App
+  Backend on Lambda, Frontend on CloudFront/S3
+
+Parameters:
+  PGUSER:
+    Type: String
+    Description: PostgreSQL User
+  PGPASSWORD:
+    Type: String
+    Description: PostgreSQL Password
+    NoEcho: true
+  PGDATABASE:
+    Type: String
+    Description: PostgreSQL Database Name
+  PGHOST:
+    Type: String
+    Description: PostgreSQL Host
+  PGPORT:
+    Type: Number
+    Description: PostgreSQL Port
+    Default: 5432
+  MONGO_URI:
+    Type: String
+    Description: MongoDB URI
+    NoEcho: true
+  MONGO_DB_NAME:
+    Type: String
+    Description: MongoDB Database Name
+  VPCSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: VPC Subnet IDs for Lambda
+  VPCSecurityGroupIds:
+    Type: List<AWS::EC2::SecurityGroup::Id>
+    Description: VPC Security Group IDs for Lambda
+
+Resources:
+  # Backend API
+  RequestBinApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+
+  # Backend Lambda Function
+  RequestBinFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: backend/
+      Handler: lambda.handler
+      Runtime: nodejs20.x
+      Timeout: 10
+      VpcConfig:
+        SubnetIds: !Ref VPCSubnetIds
+        SecurityGroupIds: !Ref VPCSecurityGroupIds
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RequestBinApi
+            Path: /api/{proxy+}
+            Method: ANY
+      Environment:
+        Variables:
+          PGUSER: !Ref PGUSER
+          PGPASSWORD: !Ref PGPASSWORD
+          PGDATABASE: !Ref PGDATABASE
+          PGHOST: !Ref PGHOST
+          PGPORT: !Ref PGPORT
+          MONGO_URI: !Ref MONGO_URI
+          MONGO_DB_NAME: !Ref MONGO_DB_NAME
+
+  # Frontend Bucket
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+
+  # CloudFront Distribution
+  FrontendDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultRootObject: index.html
+        Origins:
+          - Id: FrontendOrigin
+            DomainName: !GetAtt FrontendBucket.DomainName
+            S3OriginConfig:
+              OriginAccessIdentity: "" # Public website bucket
+          - Id: BackendOrigin
+            DomainName: !Sub "${RequestBinApi}.execute-api.${AWS::Region}.amazonaws.com"
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+        DefaultCacheBehavior:
+          TargetOriginId: FrontendOrigin
+          ViewerProtocolPolicy: redirect-to-https
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CacheBehaviors:
+          - PathPattern: /api/*
+            TargetOriginId: BackendOrigin
+            ViewerProtocolPolicy: https-only
+            AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+            ForwardedValues:
+              QueryString: true
+              Headers: [Authorization, Origin, Accept, Content-Type]
+              Cookies:
+                Forward: all
+
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join ['', ['arn:aws:s3:::', !Ref FrontendBucket, '/*']]
+
+Outputs:
+  FrontendURL:
+    Description: "URL for the frontend"
+    Value: !GetAtt FrontendDistribution.DomainName
+  ApiURL:
+    Description: "API Endpoint"
+    Value: !Sub "https://${RequestBinApi}.execute-api.${AWS::Region}.amazonaws.com/prod"

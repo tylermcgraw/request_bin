@@ -1,19 +1,9 @@
 //Import environment variables
-const config = require("./lib/config");
-const HOST = config.HOST;
-const PORT = config.PORT;
-
-const path = require("path");
+require("dotenv").config();
 
 //Create an express server
 const express = require("express");
-const server = express();
-
-// Create a 'ws' server for WebSockets
-const http = require("http");
-const WebSocket = require("ws"); // 'ws' is a Node.js library for WebSocket client (the backend) and server implementation
-const httpServer = http.createServer(server); // This creates an 'http' server
-const webSocketServer = new WebSocket.Server({ server: httpServer }); // This creates a WebSocket server and allows it to run on the same port as the http server
+const app = express();
 
 //Create API access variable
 const PostgreSQL = require("./lib/pg_api");
@@ -26,7 +16,7 @@ const {
 
 //Import and use 'morgan' to log requests
 const morgan = require("morgan");
-server.use(morgan("dev"));
+app.use(morgan("dev"));
 
 // Create validator
 const {
@@ -36,10 +26,10 @@ const {
 } = require("./lib/validator");
 
 //Add body parsing middlewear to make incoming bodies text, regardless of the type
-server.use(express.text({ type: "*/*" }));
+app.use(express.text({ type: "*/*" }));
 
 //Handles requests to clear the basket
-server.put("/api/baskets/:endpoint", async (req, res) => {
+app.put("/api/baskets/:endpoint", async (req, res) => {
   let endpoint = req.params.endpoint;
   let errorMessage = "";
 
@@ -73,7 +63,7 @@ server.put("/api/baskets/:endpoint", async (req, res) => {
 });
 
 // Handles requests to delete a basket
-server.delete("/api/baskets/:endpoint", async (req, res) => {
+app.delete("/api/baskets/:endpoint", async (req, res) => {
   let endpoint = req.params.endpoint;
   let errorMessage = "";
 
@@ -108,7 +98,7 @@ server.delete("/api/baskets/:endpoint", async (req, res) => {
 });
 
 // Handles requests to get all of the requests in a basket
-server.get("/api/baskets/:endpoint", async (req, res) => {
+app.get("/api/baskets/:endpoint", async (req, res) => {
   let endpoint = req.params.endpoint;
   let errorMessage = "";
 
@@ -142,7 +132,7 @@ server.get("/api/baskets/:endpoint", async (req, res) => {
 });
 
 // Handles requests to create a new basket
-server.post("/api/baskets/:endpoint", async (req, res) => {
+app.post("/api/baskets/:endpoint", async (req, res) => {
   let endpoint = req.params.endpoint;
   let errorMessage = "";
 
@@ -192,7 +182,7 @@ server.post("/api/baskets/:endpoint", async (req, res) => {
 });
 
 // Handles requests to create a new url endpoint
-server.get("/api/new_url_endpoint", async (_req, res) => {
+app.get("/api/new_url_endpoint", async (_req, res) => {
   let errorMessage = "";
   try {
     let newURLEndpoint = await pgApi.getNewURLEndpoint();
@@ -208,19 +198,8 @@ server.get("/api/new_url_endpoint", async (_req, res) => {
   }
 });
 
-// Handles connection for WebSocket(s) on client(s)
-webSocketServer.on("connection", (ws) => {
-  console.log("WebSocket client connected!");
-
-  ws.on("error", console.error);
-
-  ws.on("close", () => {
-    console.log("WebSocket client closed!");
-  });
-});
-
 //Handles any type of request to the exposed endpoint, sends request data to request table (webhooks use this endpoint)
-server.all("/api/:endpoint", async (req, res) => {
+app.all("/api/:endpoint", async (req, res) => {
   let headers = JSON.stringify(req.headers);
   let method = req.method;
   let body = req.body; //Stored in Mongo
@@ -248,14 +227,6 @@ server.all("/api/:endpoint", async (req, res) => {
       throw new Error(errorMessage);
     }
 
-    // Sends a request directly to client using the WebSocket connection
-    let request = { timestamp: new Date(), method, headers, body, endpoint };
-    webSocketServer.clients.forEach((client) => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(JSON.stringify({ type: "new_request", data: request }));
-      }
-    });
-
     res.status(204).send();
   } catch (e) {
     console.error(e);
@@ -264,11 +235,16 @@ server.all("/api/:endpoint", async (req, res) => {
 });
 
 //Error handler (Last Line of Defense)
-server.use((error, _req, res, _next) => {
+app.use((error, _req, res, _next) => {
   console.log(error);
   res.status(404).render("error", { error: error });
 });
 
-httpServer.listen(PORT, () => {
-  console.log(`Your server is now live on ${HOST}:${PORT}`);
-});
+module.exports = app;
+
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}

@@ -5,52 +5,47 @@ import Request from './Request';
 import CopyButton from './CopyButton';
 import Notification from './Notification';
 
+const POLLING_INTERVAL = 3000;
+
 const Basket = ({ setBaskets }) => {
   const urlEndpoint = useParams().urlEndpoint;
   const navigate = useNavigate();
   const [requests, setRequests] = useState(null);
-  const webSocketReference = useRef(null);
-  const [webSocketEnabled, setWebSocketEnabled] = useState(true);
+  const [pollingEnabled, setPollingEnabled] = useState(true);
   const [message, setMessage] = useState({ text: null, type: null });
 
   const uri = `${window.location.origin}/api/${urlEndpoint}`;
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
-  const autoRefreshLabel = webSocketEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
+  const autoRefreshLabel = pollingEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
 
   const getRequestsHook = useCallback(() => {
     services.getRequests(urlEndpoint)
       .then(setRequests)
-      .catch(() => {
-        setMessage({ text: 'Error! Not found.', type: 'error' });
-        setTimeout(() => {
-          navigate('/');
-        }, 3000);
+      .catch((error) => {
+        if (error.response?.status === 404) {
+          setMessage({ text: 'Error! Not found.', type: 'error' });
+          setTimeout(() => {
+            navigate('/');
+          }, 3000);
+        } else {
+          console.error('Error fetching requests:', error);
+        }
       });
   }, [urlEndpoint, navigate]);
 
   useEffect(() => {
     getRequestsHook();
 
-    if (webSocketEnabled && !webSocketReference.current) {
-      const socket = new WebSocket(`${wsProtocol}://${window.location.host}/api/`);
-
-      socket.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'new_request') {
-          setRequests(previous => [message.data, ...previous, ]);
-        }
-      };
-
-      socket.onclose = () => console.log('WebSocket closed');
-
-      webSocketReference.current = socket;
-
-      return () => socket.close();
+    let intervalId;
+    if (pollingEnabled) {
+      intervalId = setInterval(getRequestsHook, POLLING_INTERVAL);
     }
-  }, [getRequestsHook, webSocketEnabled, wsProtocol]);
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [getRequestsHook, pollingEnabled]);
 
   const deleteBasket = () => {
-    // Possible -> Better error handling, can use `useState` to setErrorMessage on `/`
     services.deleteBasket(urlEndpoint)
       .then(() => {
         setBaskets(baskets => baskets.filter((basket) => basket !== urlEndpoint));
@@ -84,13 +79,7 @@ const Basket = ({ setBaskets }) => {
   const refreshBasket = () => getRequestsHook();
 
   const toggleAutoRefresh = () => {
-    if (webSocketEnabled) {
-      webSocketReference.current.close();
-      webSocketReference.current = null;
-      setWebSocketEnabled(false);
-    } else {
-      setWebSocketEnabled(true);
-    }
+    setPollingEnabled(!pollingEnabled);
   };
 
   return (

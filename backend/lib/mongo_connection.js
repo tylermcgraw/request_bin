@@ -1,19 +1,33 @@
 const { MongoClient, ObjectId } = require("mongodb");
 const config = require("./config");
 
+// Singleton client - initialize once
 const client = new MongoClient(config.MONGO_URI);
+let clientPromise;
+
+async function getClient() {
+  if (!clientPromise) {
+    clientPromise = client.connect()
+      .then(connectedClient => {
+        console.log("Connected successfully to Mongo server");
+        return connectedClient;
+      })
+      .catch(err => {
+        console.error("Mongo connection failed", err);
+        clientPromise = null; // Reset promise so we can try again
+        throw err;
+      });
+  }
+  return clientPromise;
+}
 
 module.exports = {
   mongoInsertBody: async function (body) {
-    // Inserts the specified body as a document, then returns the document Id
     try {
-      await client.connect();
-      console.log("Connected successfully to server");
+      const client = await getClient();
       const db = client.db(config.MONGO_DB_NAME);
       const collection = db.collection("request_bodies");
       let result = await collection.insertOne({ body: body });
-      await client.close();
-
       return result.insertedId.toString();
     } catch (e) {
       console.error(e);
@@ -21,34 +35,23 @@ module.exports = {
   },
 
   mongoGetBody: async function (docId) {
-    //Returns the body of the specified document
     try {
-      await client.connect();
-      console.log("Connected successfully to server");
+      const client = await getClient();
       const db = client.db(config.MONGO_DB_NAME);
       const collection = db.collection("request_bodies");
-
       let result = await collection.findOne({ _id: new ObjectId(docId) });
-      await client.close();
-
-      // console.log(result);
-      return result.body;
+      return result ? result.body : null;
     } catch (e) {
       console.error(e);
     }
   },
 
   mongoDeleteBody: async function (docId) {
-    //Deletes the request with the specified document Id, returns the deletion count
     try {
-      await client.connect();
-      console.log("Connected successfully to server");
+      const client = await getClient();
       const db = client.db(config.MONGO_DB_NAME);
       const collection = db.collection("request_bodies");
-
       let result = await collection.deleteOne({ _id: new ObjectId(docId) });
-      await client.close();
-
       return result.deletedCount;
     } catch (e) {
       console.error(e);

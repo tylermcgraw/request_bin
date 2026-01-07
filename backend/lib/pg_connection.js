@@ -1,10 +1,17 @@
-const { Client } = require("pg");
+const { Pool } = require("pg");
 const config = require("./config");
-const CONNECTION = {
+
+const POOL_CONFIG = {
   user: config.PGUSER,
   password: config.PGPASSWORD,
   database: config.PGDATABASE,
+  host: config.PGHOST,
+  port: config.PGPORT || 5432,
+  max: 10, // Max clients in the pool
+  idleTimeoutMillis: 30000,
 };
+
+const pool = new Pool(POOL_CONFIG);
 
 function logQuery(statement, parameters) {
   let timeStamp = new Date();
@@ -13,12 +20,6 @@ function logQuery(statement, parameters) {
 }
 
 module.exports = async function pgQuery(statement, ...parameters) {
-  let client = new Client(CONNECTION);
-
-  await client.connect();
   logQuery(statement, parameters);
-  let result = await client.query(statement, parameters);
-  await client.end();
-
-  return result;
+  return await pool.query(statement, parameters);
 };
