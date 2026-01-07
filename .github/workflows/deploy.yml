@@ -24,6 +24,10 @@ jobs:
         working-directory: ./frontend
         run: npm run build
 
+      - name: Install CDK Dependencies
+        working-directory: ./infra
+        run: npm install
+
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -31,31 +35,6 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1 # Change to your region
 
-      - name: Install SAM CLI
-        uses: aws-actions/setup-sam@v2
-
-      - name: Build Backend (SAM)
-        run: sam build
-
-      - name: Deploy Infrastructure (SAM)
-        run: |
-          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset \
-            --stack-name request-bin-stack \
-            --capabilities CAPABILITY_IAM \
-            --parameter-overrides \
-              PGUSER=${{ secrets.PGUSER }} \
-              PGPASSWORD=${{ secrets.PGPASSWORD }} \
-              PGDATABASE=${{ secrets.PGDATABASE }} \
-              PGHOST=${{ secrets.PGHOST }} \
-              MONGO_URI=${{ secrets.MONGO_URI }} \
-              MONGO_DB_NAME=${{ secrets.MONGO_DB_NAME }}
-
-      - name: Get Frontend Bucket Name
-        id: get-bucket
-        run: |
-          BUCKET_NAME=$(aws cloudformation describe-stacks --stack-name request-bin-stack --query "Stacks[0].Outputs[?OutputKey=='FrontendBucket'].OutputValue" --output text)
-          echo "bucket_name=$BUCKET_NAME" >> $GITHUB_OUTPUT
-
-      - name: Sync Frontend to S3
-        run: |
-          aws s3 sync ./frontend/dist s3://${{ steps.get-bucket.outputs.bucket_name }} --delete
+      - name: Deploy Infrastructure (CDK)
+        working-directory: ./infra
+        run: npx cdk deploy --require-approval never
