@@ -15,7 +15,7 @@ const {
   mongoInsertBody,
   mongoGetBody,
   mongoDeleteBody,
-} = require("./lib/mongo_connection");
+} = require("./lib/dynamo_connection"); // Updated import
 
 //Import and use 'morgan' to log requests
 const morgan = require("morgan");

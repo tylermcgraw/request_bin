@@ -24,6 +24,10 @@ jobs:
         working-directory: ./frontend
         run: npm run build
 
+      - name: Install Backend Dependencies
+        working-directory: ./backend
+        run: npm install
+
       - name: Install CDK Dependencies
         working-directory: ./infra
         run: npm install
@@ -37,4 +41,4 @@ jobs:
 
       - name: Deploy Infrastructure (CDK)
         working-directory: ./infra
-        run: npx cdk deploy --require-approval never
+        run: npx cdk deploy --require-approval never --app "npx ts-node bin/request-bin.ts"

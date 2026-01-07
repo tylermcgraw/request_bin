@@ -2,7 +2,7 @@ import * as cdk from 'aws-cdk-lib';
 import { Construct } from 'constructs';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
-import * as docdb from 'aws-cdk-lib/aws-docdb';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaNode from 'aws-cdk-lib/aws-lambda-nodejs';
 import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
@@ -20,48 +20,42 @@ export class RequestBinStack extends cdk.Stack {
     // 1. VPC
     const vpc = new ec2.Vpc(this, 'RequestBinVPC', {
       maxAzs: 2,
-      natGateways: 1, // Needed for Lambda to access internet (if needed) or external APIs
+      natGateways: 0, // No NAT Gateway needed (saving ~$30/mo)
     });
 
     // 2. Security Groups
-    const lambdaSG = new ec2.SecurityGroup(this, 'LambdaSG', {
+    const dbSG = new ec2.SecurityGroup(this, 'DBSG', {
       vpc,
-      description: 'Security Group for Request Bin Lambdas',
+      description: 'Security Group for RDS',
       allowAllOutbound: true,
     });
+
+    // Allow public access to RDS (password protected)
+    dbSG.addIngressRule(ec2.Peer.anyIpv4(), ec2.Port.tcp(5432), 'Allow public access to Postgres');
 
     // 3. PostgreSQL (RDS)
     const postgres = new rds.DatabaseInstance(this, 'PostgresDB', {
       engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_1 }),
       vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, // Public Subnet
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO), // Free tier
       allocatedStorage: 20,
       databaseName: 'request_bin',
-      securityGroups: [], // Will add ingress rule later
+      securityGroups: [dbSG],
+      publiclyAccessible: true, // Key change for Lambda outside VPC
     });
 
-    postgres.connections.allowFrom(lambdaSG, ec2.Port.tcp(5432), 'Allow connection from Lambda');
-
-    // 4. DocumentDB (MongoDB Compatible)
-    const docdbCluster = new docdb.DatabaseCluster(this, 'DocDBCluster', {
-      masterUser: {
-        username: 'docdbadmin',
-      },
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MEDIUM), // Minimum size
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      vpc,
-      instances: 1,
+    // 4. DynamoDB (Replaces DocumentDB)
+    const requestBodiesTable = new dynamodb.Table(this, 'RequestBodiesTable', {
+      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST, // Free tier eligible
+      removalPolicy: cdk.RemovalPolicy.DESTROY, // For dev/test
     });
-
-    docdbCluster.connections.allowFrom(lambdaSG, ec2.Port.tcp(27017), 'Allow connection from Lambda');
 
     // 5. Backend Lambdas
     const commonLambdaProps = {
       runtime: lambda.Runtime.NODEJS_20_X,
-      vpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS },
-      securityGroups: [lambdaSG],
+      // No VPC configuration -> Lambda runs in AWS service VPC with public internet access
       environment: {
         PGHOST: postgres.instanceEndpoint.hostname,
         PGPORT: postgres.instanceEndpoint.port.toString(),
@@ -70,15 +64,11 @@ export class RequestBinStack extends cdk.Stack {
         PGUSER: postgres.secret?.secretValueFromJson('username').unsafeUnwrap() || '',
         PGPASSWORD: postgres.secret?.secretValueFromJson('password').unsafeUnwrap() || '',
 
-        // Construct Mongo URI: mongodb://<user>:<password>@<endpoint>:<port>/?ssl=true&...
-        MONGO_URI: `mongodb://${docdbCluster.secret?.secretValueFromJson('username').unsafeUnwrap()}:${docdbCluster.secret?.secretValueFromJson('password').unsafeUnwrap()}@${docdbCluster.clusterEndpoint.hostname}:${docdbCluster.clusterEndpoint.port}/?ssl=true&replicaSet=rs0&readPreference=secondaryPreferred&retryWrites=false`,
-        MONGO_DB_NAME: 'request_bin',
+        DYNAMO_TABLE_NAME: requestBodiesTable.tableName,
+        AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1',
       },
       bundling: {
-        externalModules: ['aws-sdk', '@aws-sdk/client-apigatewaymanagementapi'], // Already available in Lambda runtime? Actually apigatewaymanagementapi might not be in v20 standard layer if very new, but usually is. Safer to include?
-        // Let's bundle it to be safe, but exclude aws-sdk v2 if present.
-        // Actually, Node 20 runtime has aws-sdk v3.
-        // We will force local bundling to avoid Docker requirement
+        externalModules: ['aws-sdk', '@aws-sdk/client-apigatewaymanagementapi', '@aws-sdk/client-dynamodb', '@aws-sdk/lib-dynamodb'],
         forceDockerBundling: false,
       },
       timeout: cdk.Duration.seconds(10),
@@ -95,6 +85,10 @@ export class RequestBinStack extends cdk.Stack {
       handler: 'handler',
       ...commonLambdaProps,
     });
+
+    // Grant permissions
+    requestBodiesTable.grantReadWriteData(httpHandler);
+    requestBodiesTable.grantReadWriteData(wsHandler);
 
     // 6. WebSocket API
     const webSocketApi = new apigwv2.WebSocketApi(this, 'RequestBinWebSocketApi', {
