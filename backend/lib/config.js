@@ -1,2 +1,3 @@
 const dotenv = require("dotenv");
-module.exports = dotenv.config().parsed;
+dotenv.config();
+module.exports = process.env;

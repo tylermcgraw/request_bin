@@ -14,17 +14,24 @@ const Basket = ({ setBaskets }) => {
   const [message, setMessage] = useState({ text: null, type: null });
 
   const uri = `${window.location.origin}/api/${urlEndpoint}`;
-  const wsProtocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  // For AWS API Gateway WebSockets, the URL is typically passed via env var
+  // If not set, we default to localhost (though this won't work without a local WS server)
+  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
+
   const autoRefreshLabel = webSocketEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
 
   const getRequestsHook = useCallback(() => {
     services.getRequests(urlEndpoint)
       .then(setRequests)
-      .catch(() => {
-        setMessage({ text: 'Error! Not found.', type: 'error' });
-        setTimeout(() => {
-          navigate('/');
-        }, 3000);
+      .catch((error) => {
+        if (error.response?.status === 404) {
+          setMessage({ text: 'Error! Not found.', type: 'error' });
+          setTimeout(() => {
+            navigate('/');
+          }, 3000);
+        } else {
+          console.error('Error fetching requests:', error);
+        }
       });
   }, [urlEndpoint, navigate]);
 
@@ -32,25 +39,40 @@ const Basket = ({ setBaskets }) => {
     getRequestsHook();
 
     if (webSocketEnabled && !webSocketReference.current) {
-      const socket = new WebSocket(`${wsProtocol}://${window.location.host}/api/`);
+      // API Gateway WS uses query params for custom data on connect
+      const socket = new WebSocket(`${WS_URL}?basket_id=${urlEndpoint}`);
+
+      socket.onopen = () => {
+        console.log('WebSocket connected');
+      };
 
       socket.onmessage = (event) => {
-        const message = JSON.parse(event.data);
-        if (message.type === 'new_request') {
-          setRequests(previous => [message.data, ...previous, ]);
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'new_request') {
+            setRequests(previous => [message.data, ...previous, ]);
+          }
+        } catch (e) {
+          console.error("Failed to parse WS message", e);
         }
       };
 
-      socket.onclose = () => console.log('WebSocket closed');
+      socket.onclose = () => {
+        console.log('WebSocket closed');
+        webSocketReference.current = null;
+      };
 
       webSocketReference.current = socket;
 
-      return () => socket.close();
+      return () => {
+        if (socket.readyState === 1) { // OPEN
+            socket.close();
+        }
+      };
     }
-  }, [getRequestsHook, webSocketEnabled, wsProtocol]);
+  }, [getRequestsHook, webSocketEnabled, urlEndpoint, WS_URL]);
 
   const deleteBasket = () => {
-    // Possible -> Better error handling, can use `useState` to setErrorMessage on `/`
     services.deleteBasket(urlEndpoint)
       .then(() => {
         setBaskets(baskets => baskets.filter((basket) => basket !== urlEndpoint));
@@ -85,8 +107,10 @@ const Basket = ({ setBaskets }) => {
 
   const toggleAutoRefresh = () => {
     if (webSocketEnabled) {
-      webSocketReference.current.close();
-      webSocketReference.current = null;
+      if (webSocketReference.current) {
+        webSocketReference.current.close();
+        webSocketReference.current = null;
+      }
       setWebSocketEnabled(false);
     } else {
       setWebSocketEnabled(true);

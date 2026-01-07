@@ -15,3 +15,8 @@ CREATE TABLE requests(
   body text,
   basket_id integer NOT NULL REFERENCES baskets(id) ON DELETE CASCADE
 );
+
+CREATE TABLE connections(
+  connection_id text PRIMARY KEY,
+  basket_id integer NOT NULL REFERENCES baskets(id) ON DELETE CASCADE
+);
