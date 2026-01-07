@@ -35,7 +35,7 @@ export class RequestBinStack extends cdk.Stack {
 
     // 3. PostgreSQL (RDS)
     const postgres = new rds.DatabaseInstance(this, 'PostgresDB', {
-      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16_1 }),
+      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16 }),
       vpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC }, // Public Subnet
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T3, ec2.InstanceSize.MICRO), // Free tier
