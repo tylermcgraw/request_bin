@@ -12,6 +12,7 @@ const Basket = ({ setBaskets }) => {
   const navigate = useNavigate();
   const [requests, setRequests] = useState(null);
   const [pollingEnabled, setPollingEnabled] = useState(true);
+  const [isPageVisible, setIsPageVisible] = useState(!document.hidden);
   const [message, setMessage] = useState({ text: null, type: null });
 
   const uri = `${window.location.origin}/api/${urlEndpoint}`;
@@ -33,17 +34,30 @@ const Basket = ({ setBaskets }) => {
   }, [urlEndpoint, navigate]);
 
   useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsPageVisible(!document.hidden);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    // Initial fetch
     getRequestsHook();
 
     let intervalId;
-    if (pollingEnabled) {
+    // Only poll if enabled AND page is visible
+    if (pollingEnabled && isPageVisible) {
       intervalId = setInterval(getRequestsHook, POLLING_INTERVAL);
     }
 
     return () => {
       if (intervalId) clearInterval(intervalId);
     };
-  }, [getRequestsHook, pollingEnabled]);
+  }, [getRequestsHook, pollingEnabled, isPageVisible]);
 
   const deleteBasket = () => {
     services.deleteBasket(urlEndpoint)
