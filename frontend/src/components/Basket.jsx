@@ -14,9 +14,8 @@ const Basket = ({ setBaskets }) => {
   const [message, setMessage] = useState({ text: null, type: null });
 
   const uri = `${window.location.origin}/api/${urlEndpoint}`;
-  // For AWS API Gateway WebSockets, the URL is typically passed via env var
-  // If not set, we default to localhost (though this won't work without a local WS server)
-  const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:3000';
+  // Use custom WebSocket domain
+  const WS_URL = 'wss://ws.request-b.in';
 
   const autoRefreshLabel = webSocketEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
 

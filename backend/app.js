@@ -4,6 +4,7 @@ require("dotenv").config();
 //Create an express server
 const express = require("express");
 const app = express();
+const cors = require("cors");
 
 //AWS SDK for API Gateway Management
 const { ApiGatewayManagementApiClient, PostToConnectionCommand, DeleteConnectionCommand } = require("@aws-sdk/client-apigatewaymanagementapi");
@@ -15,11 +16,12 @@ const {
   mongoInsertBody,
   mongoGetBody,
   mongoDeleteBody,
-} = require("./lib/dynamo_connection"); // Updated import
+} = require("./lib/dynamo_connection");
 
 //Import and use 'morgan' to log requests
 const morgan = require("morgan");
 app.use(morgan("dev"));
+app.use(cors());
 
 // Create validator
 const {
@@ -233,6 +235,8 @@ app.get("/api/new_url_endpoint", async (_req, res) => {
     res.json(newURLEndpoint);
   } catch (e) {
     console.error(e);
+    // Be more explicit about DB errors for debugging (safe-ish in this context, or log properly)
+    errorMessage = "Couldn't generate new url endpoint. DB Error: " + e.message;
     res.status(404).send(errorMessage);
   }
 });

@@ -1,10 +1,9 @@
 import axios from "axios";
 
-const host = location.hostname;
-export const DOMAIN =
-  host === "localhost"
-    ? `${location.protocol}//${host}:${location.port}`
-    : `${location.protocol}//${host}`;
+// Simplify DOMAIN Logic
+// Since we are serving the frontend via CloudFront which routes /api/* to the backend,
+// we can use relative paths. This avoids CORS issues and simplifies config.
+export const DOMAIN = ""; // Relative path
 
 export const getRandomNewBasketName = async () => {
   const response = await axios.get(`${DOMAIN}/api/new_url_endpoint`);
