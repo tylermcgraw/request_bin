@@ -15,6 +15,7 @@
     "@aws-sdk/client-apigatewaymanagementapi": "^3.964.0",
     "@aws-sdk/client-dynamodb": "^3.965.0",
     "@aws-sdk/lib-dynamodb": "^3.965.0",
+    "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "morgan": "^1.10.1",
