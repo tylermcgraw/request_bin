@@ -28,10 +28,16 @@ const deleteBasket = (urlEndpoint) => {
   return axios.delete(`${DOMAIN}/api/baskets/${urlEndpoint}`);
 };
 
+const getConfig = async () => {
+  const response = await axios.get(`${DOMAIN}/api/config`);
+  return response.data;
+};
+
 export default {
   getRandomNewBasketName,
   createNewBasket,
   deleteBasket,
   getRequests,
   clearBasket,
+  getConfig,
 };

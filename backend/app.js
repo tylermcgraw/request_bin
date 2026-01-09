@@ -222,6 +222,17 @@ app.post("/api/baskets/:endpoint", async (req, res) => {
   }
 });
 
+// Expose configuration (WebSocket URL)
+app.get("/api/config", async (_req, res) => {
+  const wsUrl = process.env.WEBSOCKET_API_ENDPOINT
+    ? process.env.WEBSOCKET_API_ENDPOINT.replace('https://', 'wss://').replace('http://', 'ws://')
+    : null;
+
+  res.json({
+    webSocketUrl: wsUrl
+  });
+});
+
 // Handles requests to create a new url endpoint
 app.get("/api/new_url_endpoint", async (_req, res) => {
   let errorMessage = "";

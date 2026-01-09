@@ -12,10 +12,9 @@ const Basket = ({ setBaskets }) => {
   const webSocketReference = useRef(null);
   const [webSocketEnabled, setWebSocketEnabled] = useState(true);
   const [message, setMessage] = useState({ text: null, type: null });
+  const [wsUrl, setWsUrl] = useState(null);
 
   const uri = `${window.location.origin}/api/${urlEndpoint}`;
-  // Use custom WebSocket domain
-  const WS_URL = 'wss://ws.request-b.in';
 
   const autoRefreshLabel = webSocketEnabled ? 'Disable auto-refresh' : 'Enable auto-refresh';
 
@@ -35,11 +34,19 @@ const Basket = ({ setBaskets }) => {
   }, [urlEndpoint, navigate]);
 
   useEffect(() => {
+    services.getConfig().then(config => {
+      if (config.webSocketUrl) {
+        setWsUrl(config.webSocketUrl);
+      }
+    }).catch(err => console.error("Failed to fetch config", err));
+  }, []);
+
+  useEffect(() => {
     getRequestsHook();
 
-    if (webSocketEnabled && !webSocketReference.current) {
+    if (webSocketEnabled && !webSocketReference.current && wsUrl) {
       // API Gateway WS uses query params for custom data on connect
-      const socket = new WebSocket(`${WS_URL}?basket_id=${urlEndpoint}`);
+      const socket = new WebSocket(`${wsUrl}?basket_id=${urlEndpoint}`);
 
       socket.onopen = () => {
         console.log('WebSocket connected');
@@ -69,7 +76,7 @@ const Basket = ({ setBaskets }) => {
         }
       };
     }
-  }, [getRequestsHook, webSocketEnabled, urlEndpoint, WS_URL]);
+  }, [getRequestsHook, webSocketEnabled, urlEndpoint, wsUrl]);
 
   const deleteBasket = () => {
     services.deleteBasket(urlEndpoint)
