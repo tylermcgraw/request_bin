@@ -11,7 +11,9 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as triggers from 'aws-cdk-lib/triggers';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export class RequestBinStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -67,6 +69,7 @@ export class RequestBinStack extends cdk.Stack {
         DYNAMO_TABLE_NAME: requestBodiesTable.tableName,
         AWS_NODEJS_CONNECTION_REUSE_ENABLED: '1',
       },
+      depsLockFilePath: path.join(__dirname, '../../backend/package-lock.json'),
       bundling: {
         externalModules: ['aws-sdk', '@aws-sdk/client-apigatewaymanagementapi', '@aws-sdk/client-dynamodb', '@aws-sdk/lib-dynamodb'],
         forceDockerBundling: false,
@@ -117,6 +120,30 @@ export class RequestBinStack extends cdk.Stack {
 
     // Pass WS Endpoint to HTTP Handler
     httpHandler.addEnvironment('WEBSOCKET_API_ENDPOINT', webSocketUrl.replace('wss://', 'https://'));
+
+    // 6.5 DB Initialization
+    const schemaSql = fs.readFileSync(path.join(__dirname, '../../backend/db/schema.sql'), 'utf8');
+
+    const dbInitHandler = new lambdaNode.NodejsFunction(this, 'DbInitHandler', {
+      entry: path.join(__dirname, '../../backend/db_init.js'),
+      handler: 'handler',
+      ...commonLambdaProps,
+      environment: {
+        ...commonLambdaProps.environment,
+        DB_SCHEMA: schemaSql,
+      },
+      timeout: cdk.Duration.seconds(30),
+    });
+
+    // Run the initialization logic after DB is created
+    // We use a Trigger which creates a Custom Resource to invoke the lambda
+    const initTrigger = new triggers.Trigger(this, 'DbInitTrigger', {
+      handler: dbInitHandler,
+      executeOnHandlerChange: true, // Re-run if handler code changes (or env vars)
+    });
+
+    // Ensure DB instance is ready before init runs
+    initTrigger.node.addDependency(postgres);
 
     // 7. HTTP API
     const httpApi = new apigwv2.HttpApi(this, 'RequestBinHttpApi', {
