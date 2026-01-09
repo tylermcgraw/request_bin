@@ -12,8 +12,8 @@ const TABLE_NAME = process.env.DYNAMO_TABLE_NAME || "request_bodies";
 module.exports = {
   mongoInsertBody: async function (body) {
     // Mimic the Mongo interface: Insert body, return generated ID
-    const id = uuidv4();
     try {
+      const id = uuidv4();
       const command = new PutCommand({
         TableName: TABLE_NAME,
         Item: {
