@@ -7,7 +7,11 @@ const app = express();
 const cors = require("cors");
 
 //AWS SDK for API Gateway Management
-const { ApiGatewayManagementApiClient, PostToConnectionCommand, DeleteConnectionCommand } = require("@aws-sdk/client-apigatewaymanagementapi");
+const {
+  ApiGatewayManagementApiClient,
+  PostToConnectionCommand,
+  DeleteConnectionCommand,
+} = require("@aws-sdk/client-apigatewaymanagementapi");
 
 //Create API access variable
 const PostgreSQL = require("./lib/pg_api");
@@ -38,24 +42,28 @@ async function notifyClients(endpoint, data) {
   // Check if WEBSOCKET_API_ENDPOINT is set (Lambda environment)
   const endpointUrl = process.env.WEBSOCKET_API_ENDPOINT;
   if (!endpointUrl) {
-    console.log("Skipping WebSocket notification: WEBSOCKET_API_ENDPOINT not set");
+    console.log(
+      "Skipping WebSocket notification: WEBSOCKET_API_ENDPOINT not set"
+    );
     return;
   }
 
   const client = new ApiGatewayManagementApiClient({
-    endpoint: endpointUrl
+    endpoint: endpointUrl,
   });
 
   const connectionIds = await pgApi.getConnections(endpoint);
 
   const message = JSON.stringify({
     type: "new_request",
-    data: data
+    data: data,
   });
 
   const postCalls = connectionIds.map(async (id) => {
     try {
-      await client.send(new PostToConnectionCommand({ ConnectionId: id, Data: message }));
+      await client.send(
+        new PostToConnectionCommand({ ConnectionId: id, Data: message })
+      );
     } catch (e) {
       if (e.statusCode === 410) {
         console.log(`Found stale connection, deleting ${id}`);
@@ -225,11 +233,14 @@ app.post("/api/baskets/:endpoint", async (req, res) => {
 // Expose configuration (WebSocket URL)
 app.get("/api/config", async (_req, res) => {
   const wsUrl = process.env.WEBSOCKET_API_ENDPOINT
-    ? process.env.WEBSOCKET_API_ENDPOINT.replace('https://', 'wss://').replace('http://', 'ws://')
+    ? process.env.WEBSOCKET_API_ENDPOINT.replace("https://", "wss://").replace(
+        "http://",
+        "ws://"
+      )
     : null;
 
   res.json({
-    webSocketUrl: wsUrl
+    webSocketUrl: wsUrl,
   });
 });
 
@@ -256,7 +267,7 @@ app.get("/api/new_url_endpoint", async (_req, res) => {
 app.all("/api/:endpoint", async (req, res) => {
   let headers = JSON.stringify(req.headers);
   let method = req.method;
-  let body = req.body; //Stored in Mongo
+  let body = typeof req.body === "string" ? req.body : ""; //Stored in Mongo
   let endpoint = req.params.endpoint;
   let errorMessage = "";
 
